@@ -1,0 +1,7 @@
+../.venv
+/best_model.keras
+/dataset_comparison.png
+/midjourney_vs_dalle_detector.h5
+/tensorflow_env/
+/dataset_224x224/
+.idea
