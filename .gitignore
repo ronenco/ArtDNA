@@ -1,4 +1,5 @@
 ../.venv
+.venv
 /best_model.keras
 /dataset_comparison.png
 /midjourney_vs_dalle_detector.h5

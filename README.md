@@ -53,6 +53,78 @@ Ultimately, this project aims to contribute to the broader effort of **AI transp
 ```
 ---
 
+## 📦 Installation
+
+This project supports all operating systems (Windows, macOS, Linux), with an optional macOS-optimized TensorFlow setup that uses the Metal GPU backend for faster training on Apple Silicon (M1/M2/M3).
+
+Follow the steps below to set up your environment.
+
+### 1️⃣ Clone the Repository
+
+```
+git https://github.com/ronenco/ArtDNA.git
+cd ArtDNA
+```
+
+### 2️⃣ Create a Virtual Environment (recommended)
+
+We assume you have python3 installed.
+
+```
+python3 -m venv .venv
+source .venv/bin/activate       # macOS / Linux
+
+# or on Windows (PowerShell):
+# .venv\Scripts\activate
+```
+
+### 3️⃣ Install Dependencies
+
+#### ✔ Option A — OS-Agnostic Installation (recommended for shared environments)
+
+Use this if you want your environment to behave the same across Windows, Linux, and macOS:
+
+```
+pip install -r requirements.txt
+```
+
+This installs:
+	•	TensorFlow (CPU version)
+	•	NumPy
+	•	Matplotlib
+	•	scikit-learn
+	•	Pillow
+	•	seaborn
+	•	tqdm
+…and all other required packages.
+
+### ✔ Option B — macOS (Apple Silicon) Accelerated Installation
+
+Use this if your machine is an M1/M2/M3 Mac and you want GPU acceleration via Metal.
+
+Install the CPU-agnostic packages first:
+
+```
+pip install -r requirements.txt
+```
+
+Then install the Apple-specific TensorFlow backend:
+
+```
+pip install -r requirements-mac.txt
+```
+
+This installs:
+- tensorflow-macos
+- tensorflow-metal
+
+which replaces the standard TensorFlow wheel with a GPU-optimized implementation.
+
+:NOTE: ⚠️ Note: Do NOT install both tensorflow and tensorflow-macos together inside the same requirements file — installing them sequentially (as above) is the safe method. The macOS packages will automatically override the CPU version.
+
+
+---
+
 ## 🤝 Contributors
 
 Team project for the AI Author Classification initiative
