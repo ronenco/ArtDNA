@@ -98,7 +98,7 @@ This installs:
 	•	tqdm
 …and all other required packages.
 
-### ✔ Option B — macOS (Apple Silicon) Accelerated Installation
+#### ✔ Option B — macOS (Apple Silicon) Accelerated Installation
 
 Use this if your machine is an M1/M2/M3 Mac and you want GPU acceleration via Metal.
 
@@ -120,8 +120,28 @@ This installs:
 
 which replaces the standard TensorFlow wheel with a GPU-optimized implementation.
 
-:NOTE: ⚠️ Note: Do NOT install both tensorflow and tensorflow-macos together inside the same requirements file — installing them sequentially (as above) is the safe method. The macOS packages will automatically override the CPU version.
+[!NOTE]
+⚠️ Note: Do NOT install both tensorflow and tensorflow-macos together inside the same requirements file — installing them sequentially (as above) is the safe method. The macOS packages will automatically override the CPU version.
 
+### 4️⃣ Verify Installation
+
+Run:
+
+```
+python3 -c "import tensorflow as tf; print(tf.__version__)"
+```
+
+On macOS with Metal enabled, you should also confirm your GPU is visible:
+
+```
+python3 -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
+```
+
+Expected output (mac only):
+
+```
+[PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
+```
 
 ---
 
