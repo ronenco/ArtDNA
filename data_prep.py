@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 
 class DatasetPreparation:
-    def __init__(self, source_dirs, output_dir, img_size=(128, 128),
+    def __init__(self, source_dirs, output_dir, img_size=(224, 224),
                  train_ratio=0.8, random_seed=42):
         """
         Initialize dataset preparation
@@ -59,7 +59,7 @@ class DatasetPreparation:
 
         return image_files
 
-    def resize_and_save_image(self, src_path, dst_path, size=(128, 128)):
+    def resize_and_save_image(self, src_path, dst_path, size=(224, 224)):
         """
         Resize and save an image
 
@@ -232,6 +232,7 @@ if __name__ == "__main__":
         'dalle': 'raw_data/dalle'
     }
 
+    # Prepration for efficientNet:
     prep = DatasetPreparation(
         source_dirs=source_directories,
         output_dir='./dataset/dataset_224x224',

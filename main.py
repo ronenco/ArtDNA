@@ -1,21 +1,17 @@
 import random
 from pathlib import Path
 
-import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
 import tensorflow as tf
 from PIL import Image
+from sklearn.metrics import classification_report, confusion_matrix
 from tensorflow import keras
 from tensorflow.keras import layers
 from tensorflow.keras.applications import EfficientNetB0, Xception
 from tensorflow.keras.applications.xception import preprocess_input
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.layers import GlobalAveragePooling2D, Dense, Dropout, Input
-from tensorflow.keras.models import Model
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.metrics import classification_report, confusion_matrix
-import seaborn as sns
-
 
 # Set random seeds for reproducibility
 np.random.seed(42)
@@ -388,7 +384,7 @@ class AIImageDetector:
 
         if self.num_classes == 2:
             prob = prediction[0][0]
-            class_name = "AI-Generated" if prob > 0.5 else "Real"
+            class_name = "Midjourney" if prob > 0.5 else "Dall-E"
             confidence = prob if prob > 0.5 else 1 - prob
         else:
             class_idx = np.argmax(prediction[0])
@@ -397,12 +393,12 @@ class AIImageDetector:
 
         return class_name, confidence
 
-    def save_model(self, filepath='ai_image_detector.h5'):
+    def save_model(self, filepath='ai_image_detector.keras'):
         """Save the trained model"""
         self.model.save(filepath)
         print(f"Model saved to {filepath}")
 
-    def load_model(self, filepath='ai_image_detector.h5'):
+    def load_model(self, filepath='ai_image_detector.keras'):
         """Load a trained model"""
         self.model = keras.models.load_model(filepath)
         print(f"Model loaded from {filepath}")
@@ -493,13 +489,24 @@ if __name__ == "__main__":
     history = detector.train(train_gen, val_gen, epochs=20)
     detector.plot_training_history()
 
+    # Optional: Fine-tune for better performance
+    # print("\nFine-tuning the model...")
+    # history_fine = detector.fine_tune(train_gen, val_gen, epochs=10, unfreeze_layers=50)
     # Evaluate on validation set (serving as test here)
+
     print(f"\nEvaluating {MODEL_TYPE.upper()} model on VALIDATION set...")
     detector.evaluate(val_gen)
 
     # Save model
     detector.save_model(model_save_path)
 
-    # Example for single-image prediction (kept commented out)
-    # class_name, confidence = detector.predict_image('some_image.jpg')
+    # Predict single image
+    # detector = AIImageDetector(img_size=224, num_classes=2)
+    # detector.load_model('midjourney_vs_dalle_detector.keras')
+    # detector.prepare_data(
+    #         train_dir='dataset_224x224/train',
+    #         val_dir='dataset_224x224/val',
+    #         batch_size=32
+    # )
+    # class_name, confidence = detector.predict_image('test_image_224x224.jpg')
     # print(f"Prediction: {class_name} (Confidence: {confidence:.2%})")
