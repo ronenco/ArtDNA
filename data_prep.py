@@ -239,9 +239,21 @@ if __name__ == "__main__":
         train_ratio=0.8,
     )
 
+    # Prepration for Xception:
+    prep2 = DatasetPreparation(
+        source_dirs=source_directories,
+        output_dir='../dataset_299x299',
+        img_size=[299, 299],
+        train_ratio=0.8,
+    )
+
     # Uncomment to run:
-    stats = prep.prepare_dataset()
-    prep.verify_dataset()
+    #stats = prep.prepare_dataset()
+    #prep.verify_dataset()
+
+    stats2 = prep2.prepare_dataset()
+    prep2.verify_dataset()
+
 
     print("\n" + "=" * 60)
     print("\nTo use this script:")

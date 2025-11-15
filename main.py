@@ -6,12 +6,16 @@ import tensorflow as tf
 from PIL import Image
 from tensorflow import keras
 from tensorflow.keras import layers
-from tensorflow.keras.applications import EfficientNetB0
+from tensorflow.keras.applications import EfficientNetB0, Xception
+from tensorflow.keras.applications.xception import preprocess_input
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.layers import GlobalAveragePooling2D, Dense, Dropout, Input
+from tensorflow.keras.models import Model
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
+
 
 # Set random seeds for reproducibility
 np.random.seed(42)
@@ -31,6 +35,15 @@ class AIImageDetector:
         self.num_classes = num_classes
         self.model = None
         self.history = None
+
+    def build_modelX(self, trainable_base_layers=0):
+        """
+        Build transfer learning model using Xception
+
+        Args:
+            trainable_base_layers: Number of base model layers to make trainable (0 = freeze all)
+        """
+        
 
     def build_model(self, trainable_base_layers=0):
         """
