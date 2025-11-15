@@ -234,7 +234,7 @@ if __name__ == "__main__":
 
     prep = DatasetPreparation(
         source_dirs=source_directories,
-        output_dir='../dataset_224x224',
+        output_dir='./dataset/dataset_224x224',
         img_size=(224, 224),
         train_ratio=0.8,
     )
@@ -242,14 +242,14 @@ if __name__ == "__main__":
     # Prepration for Xception:
     prep2 = DatasetPreparation(
         source_dirs=source_directories,
-        output_dir='../dataset_299x299',
+        output_dir='./dataset/dataset_299x299',
         img_size=[299, 299],
         train_ratio=0.8,
     )
 
     # Uncomment to run:
-    #stats = prep.prepare_dataset()
-    #prep.verify_dataset()
+    stats = prep.prepare_dataset()
+    prep.verify_dataset()
 
     stats2 = prep2.prepare_dataset()
     prep2.verify_dataset()

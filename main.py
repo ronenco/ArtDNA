@@ -43,7 +43,59 @@ class AIImageDetector:
         Args:
             trainable_base_layers: Number of base model layers to make trainable (0 = freeze all)
         """
-        
+        # Load pre-trained Xception model without top layers
+        base_model = Xception(
+            include_top=False,
+            weights='imagenet',
+            input_shape=(self.img_size, self.img_size, 3)
+        )
+
+        # Freeze base model layers
+        base_model.trainable = False
+
+        # If specified, make the last N layers trainable for fine-tuning
+        if trainable_base_layers > 0:
+            base_model.trainable = True
+            for layer in base_model.layers[:-trainable_base_layers]:
+                layer.trainable = False
+
+        # Build the model
+        inputs = keras.Input(shape=(self.img_size, self.img_size, 3))
+
+        # Preprocessing for Xception (scales to [-1, 1])
+        x = preprocess_input(inputs)
+
+        # Base model
+        x = base_model(x, training=False)
+
+        # Classification head
+        x = layers.GlobalAveragePooling2D()(x)
+        x = layers.Dropout(0.2)(x)
+        x = layers.Dense(256, activation='relu')(x)
+        x = layers.Dropout(0.2)(x)
+
+        # Output layer
+        if self.num_classes == 2:
+            outputs = layers.Dense(1, activation='sigmoid')(x)
+            loss = 'binary_crossentropy'
+        else:
+            outputs = layers.Dense(self.num_classes, activation='softmax')(x)
+            loss = 'categorical_crossentropy'
+
+        self.model = keras.Model(inputs, outputs)
+
+        # Compile model
+        self.model.compile(
+            optimizer=keras.optimizers.Adam(learning_rate=1e-4),
+            loss=loss,
+            metrics=['accuracy', keras.metrics.Precision(), keras.metrics.Recall()]
+        )
+
+        print(f"Xception model built successfully!")
+        print(f"Total parameters: {self.model.count_params():,}")
+        print(f"Trainable parameters: {sum([tf.size(w).numpy() for w in self.model.trainable_weights]):,}")
+
+        return self.model
 
     def build_model(self, trainable_base_layers=0):
         """
@@ -358,26 +410,54 @@ class AIImageDetector:
 
 # Example usage
 if __name__ == "__main__":
-    # Check some samples
-    dalle_files = [f for f in Path('../dataset_224x224/train/dalle').glob('*')]
-    mid_files = [f for f in Path('../dataset_224x224/train/midjourney').glob('*')]
+    # Choose which model to run in this execution:
+    #   "efficientnet"  -> EfficientNetB0 with 224x224 images
+    #   "xception"      -> Xception with 299x299 images
+    MODEL_TYPE = "efficientnet"  # change to "xception" when you want to run that one
+    MODEL_TYPE = "xception"
+
+    if MODEL_TYPE == "efficientnet":
+        img_size = 224
+        dataset_root = Path("dataset/dataset_224x224")
+        build_fn = "efficientnet"
+        model_save_path = "midjourney_vs_dalle_efficientNet_detector.keras"
+    elif MODEL_TYPE == "xception":
+        img_size = 299
+        dataset_root = Path("dataset/dataset_299x299")
+        build_fn = "xception"
+        model_save_path = "midjourney_vs_dalle_xception_detector.keras"
+    else:
+        raise ValueError(f"Unsupported MODEL_TYPE: {MODEL_TYPE}")
+
+    # Basic sanity check on dataset paths
+    train_dir = dataset_root / "train"
+    val_dir = dataset_root / "val"
+
+    dalle_dir = train_dir / "dalle"
+    mid_dir = train_dir / "midjourney"
+
+    dalle_files = list(dalle_dir.glob("*"))
+    mid_files = list(mid_dir.glob("*"))
 
     print(f"Dalle samples: {len(dalle_files)}")
     print(f"Midjourney samples: {len(mid_files)}")
 
-    # Display a few from each
+    if len(dalle_files) == 0 or len(mid_files) == 0:
+        raise RuntimeError(
+            f"No samples found in {train_dir}. "
+            f"Please run data_prep.py and verify the dataset structure."
+        )
+
+    # Display a few from each for visual sanity check
     fig, axes = plt.subplots(3, 2, figsize=(10, 15))
     fig.suptitle('DALL-E vs Midjourney Comparison', fontsize=16)
 
-    # Display a few from each
     for i in range(3):
-        # DALL-E image
         img1 = Image.open(random.choice(dalle_files))
         axes[i, 0].imshow(img1)
         axes[i, 0].set_title(f'DALL-E Sample {i + 1}')
         axes[i, 0].axis('off')
 
-        # Midjourney image
         img2 = Image.open(random.choice(mid_files))
         axes[i, 1].imshow(img2)
         axes[i, 1].set_title(f'Midjourney Sample {i + 1}')
@@ -389,20 +469,22 @@ if __name__ == "__main__":
 
     print("\nComparison saved to 'dataset_comparison.png'")
 
-    # Initialize detector for 224x224 images
-    detector = AIImageDetector(img_size=224, num_classes=2)
+    # Initialize detector with the chosen image size
+    detector = AIImageDetector(img_size=img_size, num_classes=2)
 
-    # Build model
-    detector.build_model()
+    # Build the chosen model
+    if build_fn == "efficientnet":
+        detector.build_model(trainable_base_layers=20)
+    else:  # xception
+        detector.build_modelX(trainable_base_layers=20)
 
     # Show model architecture
     detector.model.summary()
 
-    # Prepare data - use the paths from your dataset preparation
-    # After running the data preparation script, use these paths:
-    train_gen, val_gen, = detector.prepare_data(
-        train_dir='../dataset_224x224/train',
-        val_dir='../dataset_224x224/val',
+    # Prepare data using the matching dataset resolution
+    train_gen, val_gen = detector.prepare_data(
+        train_dir=str(train_dir),
+        val_dir=str(val_dir),
         batch_size=32
     )
 
@@ -411,17 +493,13 @@ if __name__ == "__main__":
     history = detector.train(train_gen, val_gen, epochs=20)
     detector.plot_training_history()
 
-    # Optional: Fine-tune for better performance
-    # print("\nFine-tuning the model...")
-    # history_fine = detector.fine_tune(train_gen, val_gen, epochs=10, unfreeze_layers=50)
-
-    # Evaluate on test set (unseen data)
-    print("\nEvaluating model on TEST set...")
+    # Evaluate on validation set (serving as test here)
+    print(f"\nEvaluating {MODEL_TYPE.upper()} model on VALIDATION set...")
     detector.evaluate(val_gen)
 
     # Save model
-    detector.save_model('midjourney_vs_dalle_detector.keras')
+    detector.save_model(model_save_path)
 
-    # Predict single image
-    # class_name, confidence = detector.predict_image('test_image.jpg')
+    # Example for single-image prediction (kept commented out)
+    # class_name, confidence = detector.predict_image('some_image.jpg')
     # print(f"Prediction: {class_name} (Confidence: {confidence:.2%})")
