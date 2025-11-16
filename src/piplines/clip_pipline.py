@@ -15,6 +15,7 @@ MODEL_NAME = "ViT-B-32"         # CLIP backbone
 PRETRAIN_DATASET = "laion2b_s34b_b79k"  # pretraining configuration
 BATCH_SIZE = 32
 EPOCHS = 10
+TRAINABLE_CLIP_LAYERS = 10 # number of CLIP visual layers to unfreeze (0 = freeze all)
 LR = 1e-4
 DEVICE = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -69,12 +70,20 @@ def build_dataloaders(preprocess_transform):
 # ---------- Model: CLIP image encoder + small classifier ----------
 
 class CLIPClassifier(nn.Module):
-    def __init__(self, clip_model, embed_dim):
+    def __init__(self, clip_model, embed_dim, trainable_layers=0):
         super().__init__()
         self.clip_model = clip_model
         # Freeze CLIP encoder (at least initially)
         for p in self.clip_model.parameters():
             p.requires_grad = False
+
+        if trainable_layers > 0:
+            # Unfreeze the last N child modules of the visual backbone
+            visual_layers = list(self.clip_model.visual.children())
+            trainable_layers = min(trainable_layers, len(visual_layers))
+            for layer in visual_layers[-trainable_layers:]:
+                for p in layer.parameters():
+                    p.requires_grad = True
 
         # Simple linear head on top of CLIP embedding
         self.classifier = nn.Sequential(
@@ -170,10 +179,13 @@ def main():
     train_loader, val_loader = build_dataloaders(clip_preprocess)
 
     # Wrap CLIP image encoder in classifier
-    model = CLIPClassifier(clip_model, embed_dim).to(DEVICE)
+    model = CLIPClassifier(clip_model, embed_dim, trainable_layers=TRAINABLE_CLIP_LAYERS).to(DEVICE)
 
     criterion = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.Adam(model.classifier.parameters(), lr=LR)
+    optimizer = torch.optim.Adam(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=LR
+    )
 
     best_val_acc = 0.0
 

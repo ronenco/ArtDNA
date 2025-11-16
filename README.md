@@ -153,6 +153,6 @@ Contributors:
 - Cohen, Ronen
 - Lowte, Oren
 - Malikov, Mark
-- Talmor, Oren
+- Talmor, Alon
 
 ---
