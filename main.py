@@ -66,9 +66,9 @@ class AIImageDetector:
 
         # Classification head
         x = layers.GlobalAveragePooling2D()(x)
-        x = layers.Dropout(0.2)(x)
+        x = layers.Dropout(0.4)(x)
         x = layers.Dense(256, activation='relu')(x)
-        x = layers.Dropout(0.2)(x)
+        x = layers.Dropout(0.4)(x)
 
         # Output layer
         if self.num_classes == 2:
@@ -412,6 +412,8 @@ if __name__ == "__main__":
     MODEL_TYPE = "efficientnet"  # change to "xception" when you want to run that one
     MODEL_TYPE = "xception"
 
+    trainable_layers = 5
+
     if MODEL_TYPE == "efficientnet":
         img_size = 224
         dataset_root = Path("dataset/dataset_224x224")
@@ -470,9 +472,9 @@ if __name__ == "__main__":
 
     # Build the chosen model
     if build_fn == "efficientnet":
-        detector.build_model(trainable_base_layers=20)
+        detector.build_model(trainable_base_layers=trainable_layers)
     else:  # xception
-        detector.build_modelX(trainable_base_layers=20)
+        detector.build_modelX(trainable_base_layers=trainable_layers)
 
     # Show model architecture
     detector.model.summary()

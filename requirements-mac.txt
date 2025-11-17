@@ -7,3 +7,6 @@ pillow==10.3.0
 scikit-learn==1.4.0
 seaborn==0.13.2
 tqdm==4.66.1
+torch
+torchvision
+open-clip-torch

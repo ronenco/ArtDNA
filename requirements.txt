@@ -7,3 +7,6 @@ seaborn==0.13.2
 tqdm==4.66.1
 datasets>=2.14.0
 huggingface_hub>=0.16.0
+torch
+torchvision
+open-clip-torch
