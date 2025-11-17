@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import random
 
 import torch
 import torch.nn as nn
@@ -20,6 +21,7 @@ MODEL_NAME = "ViT-B-32"         # CLIP backbone
 PRETRAIN_DATASET = "laion2b_s34b_b79k"  # pretraining configuration
 BATCH_SIZE = 32
 EPOCHS = 10
+SEED = 42
 TRAINABLE_CLIP_LAYERS = 3 # number of CLIP visual layers to unfreeze (0 = freeze all)
 LR = 1e-4
 DEVICE = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
@@ -27,11 +29,12 @@ DEVICE = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.i
 DATASET_ROOT = Path("dataset/dataset_224x224")
 TRAIN_DIR = DATASET_ROOT / "train"
 VAL_DIR = DATASET_ROOT / "val"
+MODEL_SAVE_PATH = "clip_midjourney_vs_dalle_best.pt"
 
 
 # ---------- Dataset ----------
 
-def build_dataloaders(preprocess_transform):
+def build_dataloaders(preprocess_transform, train_dir: Path = TRAIN_DIR, val_dir: Path = VAL_DIR, batch_size: int = BATCH_SIZE):
     """
     Use torchvision.datasets.ImageFolder so that:
       class 0 = dalle
@@ -40,18 +43,18 @@ def build_dataloaders(preprocess_transform):
     """
 
     train_dataset = datasets.ImageFolder(
-        root=str(TRAIN_DIR),
+        root=str(train_dir),
         transform=preprocess_transform
     )
 
     val_dataset = datasets.ImageFolder(
-        root=str(VAL_DIR),
+        root=str(val_dir),
         transform=preprocess_transform
     )
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=BATCH_SIZE,
+        batch_size=batch_size,
         shuffle=True,
         num_workers=4,
         pin_memory=(DEVICE == "cuda")
@@ -59,7 +62,7 @@ def build_dataloaders(preprocess_transform):
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=BATCH_SIZE,
+        batch_size=batch_size,
         shuffle=False,
         num_workers=4,
         pin_memory=(DEVICE == "cuda")
@@ -157,7 +160,7 @@ def generate_report(model, loader, device):
 
 # ---------- Training / Evaluation loops ----------
 
-def train_one_epoch(model, loader, criterion, optimizer, device):
+def train_one_epoch(model, loader, criterion, optimizer, device, label_smoothing: float = 0.0):
     model.train()
     running_loss = 0.0
     correct = 0
@@ -166,6 +169,11 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
     for images, labels in tqdm(loader, desc="Train", leave=False):
         images = images.to(device)
         labels = labels.float().to(device)  # BCEWithLogitsLoss expects float labels (0/1)
+
+        if label_smoothing > 0.0:
+            smooth = label_smoothing
+            # For binary labels, smooth towards 0.5
+            labels = labels * (1.0 - smooth) + 0.5 * smooth
 
         optimizer.zero_grad()
         logits = model(images)
@@ -210,48 +218,110 @@ def evaluate(model, loader, criterion, device):
     return avg_loss, acc
 
 
-# ---------- Main ----------
+def run_pipeline(
+    model_name: str = MODEL_NAME,
+    pretrained_dataset: str = PRETRAIN_DATASET,
+    batch_size: int = BATCH_SIZE,
+    epochs: int = EPOCHS,
+    lr: float = LR,
+    trainable_clip_layers: int = TRAINABLE_CLIP_LAYERS,
+    dataset_root: Path = DATASET_ROOT,
+    model_save_path: str = MODEL_SAVE_PATH,
+    seed: int = SEED,
+    device: str = DEVICE,
+    label_smoothing: float = 0.0,
+):
+    """Run the full CLIP-based pipeline end-to-end.
 
-def main():
-    print(f"Using device: {DEVICE}")
+    All arguments have sensible defaults taken from the config section,
+    but can be overridden when calling this function.
+    """
+    # Set seeds for reproducibility
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+    print(f"Using device: {device}")
+
+    train_dir = dataset_root / "train"
+    val_dir = dataset_root / "val"
 
     # Load CLIP model & preprocess
     clip_model, _, clip_preprocess = open_clip.create_model_and_transforms(
-        MODEL_NAME,
-        pretrained=PRETRAIN_DATASET,
-        device=DEVICE
+        model_name,
+        pretrained=pretrained_dataset,
+        device=device
     )
 
     embed_dim = clip_model.visual.output_dim
     print(f"CLIP visual embed_dim: {embed_dim}")
 
     # Build dataloaders with CLIP's preprocessing
-    train_loader, val_loader = build_dataloaders(clip_preprocess)
+    train_loader, val_loader = build_dataloaders(
+        clip_preprocess,
+        train_dir=train_dir,
+        val_dir=val_dir,
+        batch_size=batch_size,
+    )
+
+    # Compute class balance and pos_weight for BCEWithLogitsLoss
+    targets = np.array(train_loader.dataset.targets)
+    num_pos = (targets == 1).sum()
+    num_neg = (targets == 0).sum()
+    if num_pos > 0 and num_neg > 0:
+        pos_weight_value = num_neg / num_pos
+        pos_weight = torch.tensor([pos_weight_value], device=device)
+        print(f"Using pos_weight={pos_weight_value:.4f} for BCEWithLogitsLoss (neg={num_neg}, pos={num_pos})")
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    else:
+        print("Warning: could not compute class weights (one of the classes has zero samples). Using unweighted loss.")
+        criterion = nn.BCEWithLogitsLoss()
 
     # Wrap CLIP image encoder in classifier
-    model = CLIPClassifier(clip_model, embed_dim, trainable_layers=TRAINABLE_CLIP_LAYERS).to(DEVICE)
+    model = CLIPClassifier(
+        clip_model,
+        embed_dim,
+        trainable_layers=trainable_clip_layers
+    ).to(device)
 
-    criterion = nn.BCEWithLogitsLoss()
     optimizer = torch.optim.Adam(
         filter(lambda p: p.requires_grad, model.parameters()),
-        lr=LR
+        lr=lr
     )
 
     best_val_acc = 0.0
 
-    for epoch in range(EPOCHS):
-        print(f"\nEpoch {epoch + 1}/{EPOCHS}")
-        train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, DEVICE)
-        val_loss, val_acc = evaluate(model, val_loader, criterion, DEVICE)
+    for epoch in range(epochs):
+        print(f"\nEpoch {epoch + 1}/{epochs}")
+        train_loss, train_acc = train_one_epoch(
+            model,
+            train_loader,
+            criterion,
+            optimizer,
+            device,
+            label_smoothing=label_smoothing,
+        )
+        val_loss, val_acc = evaluate(model, val_loader, criterion, device)
 
         print(f"Train loss: {train_loss:.4f} | Train acc: {train_acc:.4f}")
         print(f"Val   loss: {val_loss:.4f} | Val   acc: {val_acc:.4f}")
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            torch.save(model.state_dict(), "clip_midjourney_vs_dalle_best.pt")
+            torch.save(model.state_dict(), model_save_path)
             print(f"✅ New best model saved (val_acc={val_acc:.4f})")
+
     print(f"\nBest val accuracy: {best_val_acc:.4f}")
+
+    return model, val_loader
+
+
+# ---------- Main ----------
+
+def main():
+    model, val_loader = run_pipeline()
     return model, val_loader
 
 
