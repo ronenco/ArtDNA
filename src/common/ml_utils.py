@@ -115,7 +115,7 @@ def plot_training_history(history, title_prefix: str = "Model"):
     """
 
     import matplotlib.pyplot as plt
-    
+
     if history is None:
         print("No training history available.")
         return
@@ -134,7 +134,7 @@ def plot_training_history(history, title_prefix: str = "Model"):
     # Loss
     axes[1].plot(history.history["loss"], label="Train Loss")
     axes[1].plot(history.history["val_loss"], label="Val Loss")
-    axes[1].set_title("Model Loss")
+    axes[1].set_title(f"{title_prefix} Loss")
     axes[1].set_xlabel("Epoch")
     axes[1].set_ylabel("Loss")
     axes[1].legend()
