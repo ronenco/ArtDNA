@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
-
+from src.common.ml_utils import set_global_seed
 
 class DatasetPreparation:
     def __init__(self, source_dirs, output_dir, img_size=(224, 224),
@@ -25,7 +25,7 @@ class DatasetPreparation:
         self.img_size = img_size
         self.train_ratio = train_ratio
         self.val_ratio = 1.0 - train_ratio
-        self.random_seed = random_seed
+        set_global_seed(random_seed)
 
         # Validate ratios
         if not (0.0 <= train_ratio <= 1.0):  # Allow small floating point errors

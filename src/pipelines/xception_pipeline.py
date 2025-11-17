@@ -12,6 +12,7 @@ from tensorflow.keras import layers
 from tensorflow.keras.applications import Xception
 from tensorflow.keras.applications.xception import preprocess_input
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from src.common.ml_utils import set_global_seed, compute_class_weights, plot_training_history
 
 
 # ---------- Config ----------
@@ -30,9 +31,7 @@ VAL_DIR = DATASET_ROOT / "val"
 MODEL_SAVE_PATH = "midjourney_vs_dalle_xception_detector.keras"
 
 # Set random seeds for reproducibility
-np.random.seed(SEED)
-tf.random.set_seed(SEED)
-random.seed(SEED)
+set_global_seed(SEED)
 
 
 # ---------- Dataset ----------
@@ -192,15 +191,8 @@ def train_model(model, train_generator, val_generator, epochs=EPOCHS):
         ),
     ]
 
-    # Class weights compensate for class imbalance (different number of images per class)
-    if NUM_CLASSES == 2:
-        labels = np.array(train_generator.labels)
-        class_weights = {
-            0: len(labels) / (2 * np.sum(labels == 0)),
-            1: len(labels) / (2 * np.sum(labels == 1)),
-        }
-    else:
-        class_weights = None
+    # Class weights compensate for class imbalance (supports binary and multi-class)
+    class_weights = compute_class_weights(train_generator.labels)
 
     history = model.fit(
         train_generator,
@@ -211,39 +203,6 @@ def train_model(model, train_generator, val_generator, epochs=EPOCHS):
     )
 
     return history
-
-
-def plot_training_history(history):
-    """
-    Plot training and validation accuracy and loss curves.
-    """
-    if history is None:
-        print("No training history available.")
-        return
-
-    fig, axes = plt.subplots(1, 2, figsize=(15, 5))
-
-    # Accuracy
-    axes[0].plot(history.history["accuracy"], label="Train Accuracy")
-    axes[0].plot(history.history["val_accuracy"], label="Val Accuracy")
-    axes[0].set_title("Model Accuracy")
-    axes[0].set_xlabel("Epoch")
-    axes[0].set_ylabel("Accuracy")
-    axes[0].legend()
-    axes[0].grid(True)
-
-    # Loss
-    axes[1].plot(history.history["loss"], label="Train Loss")
-    axes[1].plot(history.history["val_loss"], label="Val Loss")
-    axes[1].set_title("Model Loss")
-    axes[1].set_xlabel("Epoch")
-    axes[1].set_ylabel("Loss")
-    axes[1].legend()
-    axes[1].grid(True)
-
-    plt.tight_layout()
-    plt.show()
-
 
 def evaluate_model(model, val_generator):
     """
@@ -343,9 +302,7 @@ def run_pipeline(
     but can be overridden when calling this function.
     """
     # Update seeds (in case caller overrides them)
-    np.random.seed(seed)
-    tf.random.set_seed(seed)
-    random.seed(seed)
+    set_global_seed(seed)
 
     train_dir = dataset_root / "train"
     val_dir = dataset_root / "val"
@@ -380,7 +337,7 @@ def run_pipeline(
     history = train_model(model, train_gen, val_gen, epochs=epochs)
 
     # Plot training history
-    plot_training_history(history)
+    plot_training_history(history, title_prefix="XCEPTION")
 
     # Evaluate on validation set
     print("\nEvaluating XCEPTION model on VALIDATION set...")

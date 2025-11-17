@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import random
 
 import torch
 import torch.nn as nn
@@ -13,6 +12,8 @@ import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+from src.common.ml_utils import set_global_seed, plot_training_history_torch
 
 
 # ---------- Config ----------
@@ -237,8 +238,7 @@ def run_pipeline(
     but can be overridden when calling this function.
     """
     # Set seeds for reproducibility
-    random.seed(seed)
-    np.random.seed(seed)
+    set_global_seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
@@ -294,6 +294,10 @@ def run_pipeline(
     )
 
     best_val_acc = 0.0
+    train_losses = []
+    train_accs = []
+    val_losses = []
+    val_accs = []
 
     for epoch in range(epochs):
         print(f"\nEpoch {epoch + 1}/{epochs}")
@@ -306,6 +310,11 @@ def run_pipeline(
             label_smoothing=label_smoothing,
         )
         val_loss, val_acc = evaluate(model, val_loader, criterion, device)
+        # Append to data
+        train_losses.append(train_loss)
+        train_accs.append(train_acc)
+        val_losses.append(val_loss)
+        val_accs.append(val_acc)
 
         print(f"Train loss: {train_loss:.4f} | Train acc: {train_acc:.4f}")
         print(f"Val   loss: {val_loss:.4f} | Val   acc: {val_acc:.4f}")
@@ -316,7 +325,11 @@ def run_pipeline(
             print(f"✅ New best model saved (val_acc={val_acc:.4f})")
 
     print(f"\nBest val accuracy: {best_val_acc:.4f}")
-
+    
+    # Plot the training history:
+    plot_training_history_torch(train_losses, val_losses, train_accs, val_accs,
+        title_prefix="CLIP")
+    
     return model, val_loader
 
 
