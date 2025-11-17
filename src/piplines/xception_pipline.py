@@ -89,7 +89,7 @@ def prepare_data(train_dir, val_dir, batch_size=BATCH_SIZE, img_size=IMG_SIZE):
 
 # ---------- Model: Xception backbone + classifier ----------
 
-def build_xception_model(img_size=IMG_SIZE, num_classes=NUM_CLASSES, trainable_base_layers=0):
+def build_xception_model(img_size=IMG_SIZE, num_classes=NUM_CLASSES, trainable_base_layers=0, lr=LR, label_smoothing=0.0):
     """
     Build transfer learning model using Xception as backbone.
 
@@ -97,6 +97,8 @@ def build_xception_model(img_size=IMG_SIZE, num_classes=NUM_CLASSES, trainable_b
         img_size: Input image size (img_size x img_size).
         num_classes: Number of output classes.
         trainable_base_layers: Number of base model layers to make trainable (0 = freeze all).
+        lr: Learning rate for the optimizer.
+        label_smoothing: Label smoothing factor for the loss function.
     """
     # Load pre-trained Xception model without top layers
     base_model = Xception(
@@ -126,24 +128,28 @@ def build_xception_model(img_size=IMG_SIZE, num_classes=NUM_CLASSES, trainable_b
     # Classification head
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dropout(0.4)(x)
-    x = layers.Dense(256, activation="relu")(x)
+    x = layers.Dense(
+        256,
+        activation="relu",
+        kernel_regularizer=keras.regularizers.l2(1e-4),
+    )(x)
     x = layers.Dropout(0.4)(x)
 
     # Output layer
     if num_classes == 2:
         outputs = layers.Dense(1, activation="sigmoid")(x)
-        loss = "binary_crossentropy"
+        loss = keras.losses.BinaryCrossentropy(label_smoothing=label_smoothing)
         metrics = ["accuracy", keras.metrics.Precision(name="precision"), keras.metrics.Recall(name="recall")]
     else:
         outputs = layers.Dense(num_classes, activation="softmax")(x)
-        loss = "categorical_crossentropy"
+        loss = keras.losses.CategoricalCrossentropy(label_smoothing=label_smoothing)
         metrics = ["accuracy", keras.metrics.Precision(name="precision"), keras.metrics.Recall(name="recall")]
 
     model = keras.Model(inputs, outputs)
 
     # Compile model
     model.compile(
-        optimizer=keras.optimizers.Adam(learning_rate=LR),
+        optimizer=keras.optimizers.Adam(learning_rate=lr),
         loss=loss,
         metrics=metrics,
     )
@@ -186,7 +192,7 @@ def train_model(model, train_generator, val_generator, epochs=EPOCHS):
         ),
     ]
 
-    # Class weights for binary case
+    # Class weights compensate for class imbalance (different number of images per class)
     if NUM_CLASSES == 2:
         labels = np.array(train_generator.labels)
         class_weights = {
@@ -319,33 +325,59 @@ def sanity_check_and_visualize(train_dir):
     print("\nComparison saved to 'dataset_comparison_xception.png'")
 
 
-# ---------- Main ----------
+def run_pipeline(
+    img_size: int = IMG_SIZE,
+    num_classes: int = NUM_CLASSES,
+    batch_size: int = BATCH_SIZE,
+    epochs: int = EPOCHS,
+    lr: float = LR,
+    trainable_base_layers: int = TRAINABLE_BASE_LAYERS,
+    dataset_root: Path = DATASET_ROOT,
+    model_save_path: str = MODEL_SAVE_PATH,
+    label_smoothing: float = 0.0,
+    seed: int = SEED,
+):
+    """Run the full Xception pipeline end-to-end.
 
-def main():
-    print(f"Using Xception with image size {IMG_SIZE}x{IMG_SIZE}")
-    print(f"Dataset root: {DATASET_ROOT}")
+    All arguments have sensible defaults taken from the config section,
+    but can be overridden when calling this function.
+    """
+    # Update seeds (in case caller overrides them)
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
+    random.seed(seed)
+
+    train_dir = dataset_root / "train"
+    val_dir = dataset_root / "val"
+
+    print(f"Using Xception with image size {img_size}x{img_size}")
+    print(f"Dataset root: {dataset_root}")
+    print(f"Label smoothing: {label_smoothing}")
+    print(f"Trainable base layers: {trainable_base_layers}")
 
     # Basic sanity check on dataset paths and visualize some samples
-    sanity_check_and_visualize(TRAIN_DIR)
+    sanity_check_and_visualize(train_dir)
 
     # Build model
     model = build_xception_model(
-        img_size=IMG_SIZE,
-        num_classes=NUM_CLASSES,
-        trainable_base_layers=TRAINABLE_BASE_LAYERS,
+        img_size=img_size,
+        num_classes=num_classes,
+        trainable_base_layers=trainable_base_layers,
+        lr=lr,
+        label_smoothing=label_smoothing,
     )
 
     # Prepare data
     train_gen, val_gen = prepare_data(
-        train_dir=TRAIN_DIR,
-        val_dir=VAL_DIR,
-        batch_size=BATCH_SIZE,
-        img_size=IMG_SIZE,
+        train_dir=train_dir,
+        val_dir=val_dir,
+        batch_size=batch_size,
+        img_size=img_size,
     )
 
     # Train
     print("\nStarting training...")
-    history = train_model(model, train_gen, val_gen, epochs=EPOCHS)
+    history = train_model(model, train_gen, val_gen, epochs=epochs)
 
     # Plot training history
     plot_training_history(history)
@@ -355,9 +387,16 @@ def main():
     evaluate_model(model, val_gen)
 
     # Save model (best model is already saved by ModelCheckpoint, but save final as well if desired)
-    model.save(MODEL_SAVE_PATH)
-    print(f"Model saved to {MODEL_SAVE_PATH}")
+    model.save(model_save_path)
+    print(f"Model saved to {model_save_path}")
 
+    return model, (train_gen, val_gen)
+
+
+# ---------- Main ----------
+
+def main():
+    model, (train_gen, val_gen) = run_pipeline()
     return model, (train_gen, val_gen)
 
 

@@ -272,6 +272,8 @@ def run_pipeline(
     num_neg = (targets == 0).sum()
     if num_pos > 0 and num_neg > 0:
         pos_weight_value = num_neg / num_pos
+        if (device == "mps"):
+            pos_weight_value = pos_weight_value.astype(np.float32)
         pos_weight = torch.tensor([pos_weight_value], device=device)
         print(f"Using pos_weight={pos_weight_value:.4f} for BCEWithLogitsLoss (neg={num_neg}, pos={num_pos})")
         criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
