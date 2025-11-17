@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from src.piplines.xception_pipline import run_pipeline as run_xception_pipeline
-from src.piplines.efficeintnet_pipline import run_pipeline as run_efficientnet_pipeline
-from src.piplines.clip_pipline import run_pipeline as run_clip_pipeline
+from src.pipelines.xception_pipeline import run_pipeline as run_xception_pipeline
+from src.pipelines.efficeintnet_pipeline import run_pipeline as run_efficientnet_pipeline
+from src.pipelines.clip_pipeline import run_pipeline as run_clip_pipeline
 
 import argparse
 
