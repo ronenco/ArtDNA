@@ -15,7 +15,7 @@ MODEL_NAME = "ViT-B-32"         # CLIP backbone
 PRETRAIN_DATASET = "laion2b_s34b_b79k"  # pretraining configuration
 BATCH_SIZE = 32
 EPOCHS = 10
-TRAINABLE_CLIP_LAYERS = 10 # number of CLIP visual layers to unfreeze (0 = freeze all)
+TRAINABLE_CLIP_LAYERS = 3 # number of CLIP visual layers to unfreeze (0 = freeze all)
 LR = 1e-4
 DEVICE = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -73,17 +73,25 @@ class CLIPClassifier(nn.Module):
     def __init__(self, clip_model, embed_dim, trainable_layers=0):
         super().__init__()
         self.clip_model = clip_model
-        # Freeze CLIP encoder (at least initially)
+        self.finetune_backbone = trainable_layers > 0
+        # Freeze all CLIP parameters by default
         for p in self.clip_model.parameters():
             p.requires_grad = False
 
         if trainable_layers > 0:
-            # Unfreeze the last N child modules of the visual backbone
-            visual_layers = list(self.clip_model.visual.children())
-            trainable_layers = min(trainable_layers, len(visual_layers))
-            for layer in visual_layers[-trainable_layers:]:
-                for p in layer.parameters():
-                    p.requires_grad = True
+            # Unfreeze the last N transformer blocks (and ln_post) of the visual backbone
+            if hasattr(self.clip_model, "visual") and hasattr(self.clip_model.visual, "transformer"):
+                blocks = self.clip_model.visual.transformer.resblocks
+                total_blocks = len(blocks)
+                n = min(trainable_layers, total_blocks)
+                for block in blocks[total_blocks - n :]:
+                    for p in block.parameters():
+                        p.requires_grad = True
+
+                # Also unfreeze final layer norm / ln_post if present
+                if hasattr(self.clip_model.visual, "ln_post"):
+                    for p in self.clip_model.visual.ln_post.parameters():
+                        p.requires_grad = True
 
         # Simple linear head on top of CLIP embedding
         self.classifier = nn.Sequential(
@@ -95,8 +103,11 @@ class CLIPClassifier(nn.Module):
 
     def forward(self, images):
         # CLIP image encoder expects already-preprocessed tensors
-        with torch.no_grad():
+        if self.finetune_backbone:
             features = self.clip_model.encode_image(images)
+        else:
+            with torch.no_grad():
+                features = self.clip_model.encode_image(images)
 
         # Optionally normalize features
         features = features / features.norm(dim=-1, keepdim=True)
