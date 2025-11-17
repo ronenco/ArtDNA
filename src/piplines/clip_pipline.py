@@ -8,6 +8,11 @@ from torchvision import datasets, transforms
 import open_clip
 from tqdm import tqdm
 
+import numpy as np
+from sklearn.metrics import classification_report, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 
 # ---------- Config ----------
 
@@ -49,7 +54,7 @@ def build_dataloaders(preprocess_transform):
         batch_size=BATCH_SIZE,
         shuffle=True,
         num_workers=4,
-        pin_memory=True
+        pin_memory=(DEVICE == "cuda")
     )
 
     val_loader = DataLoader(
@@ -57,7 +62,7 @@ def build_dataloaders(preprocess_transform):
         batch_size=BATCH_SIZE,
         shuffle=False,
         num_workers=4,
-        pin_memory=True
+        pin_memory=(DEVICE == "cuda")
     )
 
     print("Classes:", train_dataset.classes)
@@ -114,6 +119,40 @@ class CLIPClassifier(nn.Module):
 
         logits = self.classifier(features)
         return logits.squeeze(1)
+
+
+def generate_report(model, loader, device):
+    model.eval()
+    all_labels = []
+    all_preds = []
+
+    with torch.no_grad():
+        for images, labels in tqdm(loader, desc="Report", leave=False):
+            images = images.to(device)
+            logits = model(images)
+            probs = torch.sigmoid(logits)
+            preds = (probs > 0.5).long().cpu().numpy()
+
+            all_labels.append(labels.numpy())
+            all_preds.append(preds)
+
+    all_labels = np.concatenate(all_labels)
+    all_preds = np.concatenate(all_preds)
+
+    class_names = loader.dataset.classes
+
+    print("\nClassification report:")
+    print(classification_report(all_labels, all_preds, target_names=class_names))
+
+    cm = confusion_matrix(all_labels, all_preds)
+    plt.figure(figsize=(4, 4))
+    sns.heatmap(cm, annot=True, fmt="d", xticklabels=class_names, yticklabels=class_names)
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.title("Confusion Matrix")
+    plt.tight_layout()
+    plt.savefig("clip_confusion_matrix.png")
+    plt.close()
 
 
 # ---------- Training / Evaluation loops ----------
@@ -212,9 +251,13 @@ def main():
             best_val_acc = val_acc
             torch.save(model.state_dict(), "clip_midjourney_vs_dalle_best.pt")
             print(f"✅ New best model saved (val_acc={val_acc:.4f})")
-
     print(f"\nBest val accuracy: {best_val_acc:.4f}")
+    return model, val_loader
 
 
 if __name__ == "__main__":
-    main()
+    # Run the Pipline to generate model
+    model, val_loader = main()
+
+    #Generate report:
+    generate_report(model, val_loader, DEVICE)
