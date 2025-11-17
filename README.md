@@ -1,6 +1,6 @@
 # 🧠 ArtDNA - AI Author Classifier
 
-Identify which **AI model** (e.g. *Midjourney, DALL·E, Stable Diffusion*) most likely generated a given image — using visual fingerprinting, statistical cues, and style embeddings.
+Identify which **AI model** (*Midjourney vs DALL·E*) most likely generated a given image — using visual fingerprinting, statistical cues, and style embeddings.
 
 ---
 
