@@ -3,7 +3,7 @@ from pathlib import Path
 from src.pipelines.xception_pipeline import run_pipeline as run_xception_pipeline
 from src.pipelines.efficeintnet_pipeline import run_pipeline as run_efficientnet_pipeline
 from src.pipelines.clip_pipeline import run_pipeline as run_clip_pipeline
-
+from src.pipelines.resnet18_pipeline import run_pipeline as run_resnet_pipeline  
 import argparse
 
 # Hyperparameters will now come from CLI arguments
@@ -44,7 +44,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Run ArtDNA training pipeline")
 
     parser.add_argument("--model-type", type=str, default="xception",
-                        choices=["xception", "efficientnet", "clip"],
+                        choices=["xception", "efficientnet", "clip","resnet"],
                         help="Which model pipeline to run")
 
     parser.add_argument("--batch-size", type=int, default=32)
@@ -53,7 +53,7 @@ def parse_args():
     parser.add_argument("--label-smoothing", type=float, default=0.1)
 
     parser.add_argument("--trainable-base-layers", type=int, default=5,
-                        help="Used for Xception/EfficientNet fine-tuning")
+                        help="Used for Xception/EfficientNet/ResNet fine-tuning")
     parser.add_argument("--trainable-clip-layers", type=int, default=2,
                         help="Used for CLIP fine-tuning")
 
@@ -72,7 +72,7 @@ def main():
     if args.dataset_root is not None:
         dataset_root = Path(args.dataset_root)
     else:
-        if args.model_type in ("efficientnet", "clip"):
+        if args.model_type in ("efficientnet", "clip","resnet"):
             dataset_root = DATASET_224
         elif args.model_type == "xception":
             dataset_root = DATASET_299
@@ -120,6 +120,22 @@ def main():
             seed=args.seed,
         )
         return model, val_loader
+    elif args.model_type == "resnet":
+
+        print("Running ResNet18 pipeline...")
+
+        model, (train_loader, val_loader) = run_resnet_pipeline(
+            batch_size=args.batch_size,
+            epochs=args.epochs,
+            lr=args.lr,
+            label_smoothing=args.label_smoothing,
+            trainable_base_layers=args.trainable_base_layers,
+            dataset_root=dataset_root,
+            seed=args.seed,
+
+        )
+
+        return model, (train_loader, val_loader)
 
     else:
         raise ValueError(f"Unsupported MODEL_TYPE: {args.model_type}")
