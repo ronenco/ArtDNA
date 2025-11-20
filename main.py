@@ -1,10 +1,12 @@
-from pathlib import Path
-
-from src.pipelines.xception_pipeline import run_pipeline as run_xception_pipeline
-from src.pipelines.efficeintnet_pipeline import run_pipeline as run_efficientnet_pipeline
-from src.pipelines.clip_pipeline import run_pipeline as run_clip_pipeline
-from src.pipelines.resnet18_pipeline import run_pipeline as run_resnet_pipeline  
 import argparse
+from pathlib import Path
+from typing import Optional
+
+from src.common.logging_utils import tee_output
+from src.pipelines.clip_pipeline import run_pipeline as run_clip_pipeline
+from src.pipelines.efficeintnet_pipeline import run_pipeline as run_efficientnet_pipeline
+from src.pipelines.resnet18_pipeline import run_pipeline as run_resnet_pipeline
+from src.pipelines.xception_pipeline import run_pipeline as run_xception_pipeline
 
 # Hyperparameters will now come from CLI arguments
 
@@ -40,104 +42,125 @@ def ensure_dataset_has_images(dataset_root: Path):
             f"Looked for image files under: {missing_str}"
         )
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Run ArtDNA training pipeline")
 
-    parser.add_argument("--model-type", type=str, default="xception",
-                        choices=["xception", "efficientnet", "clip","resnet"],
-                        help="Which model pipeline to run")
+    parser.add_argument(
+        "--model-type",
+        type=str,
+        default="xception",
+        choices=["xception", "efficientnet", "clip", "resnet"],
+        help="Which model pipeline to run",
+    )
 
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--label-smoothing", type=float, default=0.1)
 
-    parser.add_argument("--trainable-base-layers", type=int, default=5,
-                        help="Used for Xception/EfficientNet/ResNet fine-tuning")
-    parser.add_argument("--trainable-clip-layers", type=int, default=2,
-                        help="Used for CLIP fine-tuning")
+    parser.add_argument(
+        "--trainable-base-layers",
+        type=int,
+        default=5,
+        help="Used for Xception/EfficientNet/ResNet fine-tuning",
+    )
+    parser.add_argument(
+        "--trainable-clip-layers",
+        type=int,
+        default=2,
+        help="Used for CLIP fine-tuning",
+    )
 
     parser.add_argument("--seed", type=int, default=42)
 
-    parser.add_argument("--dataset-root", type=str, default=None,
-                        help="Optional override for dataset root folder. "
-                             "If not provided, a default is chosen per model type.")
+    parser.add_argument(
+        "--dataset-root",
+        type=str,
+        default=None,
+        help=(
+            "Optional override for dataset root folder. "
+            "If not provided, a default is chosen per model type."
+        ),
+    )
 
     return parser.parse_args()
 
+
+def _resolve_dataset_root(model_type: str, override: Optional[str]) -> Path:
+    if override is not None:
+        return Path(override)
+
+    if model_type in ("efficientnet", "clip", "resnet"):
+        return DATASET_224
+    if model_type == "xception":
+        return DATASET_299
+
+    raise ValueError(f"Unsupported MODEL_TYPE: {model_type}")
+
+
 def main():
     args = parse_args()
+    model_type = args.model_type.lower()
 
-    # Choose dataset root: either override from CLI, or sensible default per model type
-    if args.dataset_root is not None:
-        dataset_root = Path(args.dataset_root)
-    else:
-        if args.model_type in ("efficientnet", "clip","resnet"):
-            dataset_root = DATASET_224
-        elif args.model_type == "xception":
-            dataset_root = DATASET_299
-        else:
-            raise ValueError(f"Unsupported MODEL_TYPE: {args.model_type}")
+    with tee_output(model_type):
+        dataset_root = _resolve_dataset_root(model_type, args.dataset_root)
 
-    # Ensure dataset exists and contains images before running the pipeline
-    ensure_dataset_has_images(dataset_root)
+        # Ensure dataset exists and contains images before running the pipeline
+        ensure_dataset_has_images(dataset_root)
 
-    if args.model_type == "xception":
-        print("Running Xception pipeline...")
-        model, (train_gen, val_gen) = run_xception_pipeline(
-            batch_size=args.batch_size,
-            epochs=args.epochs,
-            lr=args.lr,
-            label_smoothing=args.label_smoothing,
-            trainable_base_layers=args.trainable_base_layers,
-            dataset_root=dataset_root,
-            seed=args.seed,
-        )
-        return model, (train_gen, val_gen)
+        if model_type == "xception":
+            print("Running Xception pipeline...")
+            model, (train_gen, val_gen) = run_xception_pipeline(
+                batch_size=args.batch_size,
+                epochs=args.epochs,
+                lr=args.lr,
+                label_smoothing=args.label_smoothing,
+                trainable_base_layers=args.trainable_base_layers,
+                dataset_root=dataset_root,
+                seed=args.seed,
+            )
+            return model, (train_gen, val_gen)
 
-    elif args.model_type == "efficientnet":
-        print("Running EfficientNetB0 pipeline...")
-        model, (train_gen, val_gen) = run_efficientnet_pipeline(
-            batch_size=args.batch_size,
-            epochs=args.epochs,
-            lr=args.lr,
-            label_smoothing=args.label_smoothing,
-            trainable_base_layers=args.trainable_base_layers,
-            dataset_root=dataset_root,
-            seed=args.seed,
-        )
-        return model, (train_gen, val_gen)
+        if model_type == "efficientnet":
+            print("Running EfficientNetB0 pipeline...")
+            model, (train_gen, val_gen) = run_efficientnet_pipeline(
+                batch_size=args.batch_size,
+                epochs=args.epochs,
+                lr=args.lr,
+                label_smoothing=args.label_smoothing,
+                trainable_base_layers=args.trainable_base_layers,
+                dataset_root=dataset_root,
+                seed=args.seed,
+            )
+            return model, (train_gen, val_gen)
 
-    elif args.model_type == "clip":
-        print("Running CLIP pipeline...")
-        model, val_loader = run_clip_pipeline(
-            batch_size=args.batch_size,
-            epochs=args.epochs,
-            lr=args.lr,
-            label_smoothing=args.label_smoothing,
-            trainable_clip_layers=args.trainable_clip_layers,
-            dataset_root=dataset_root,
-            seed=args.seed,
-        )
-        return model, val_loader
-    elif args.model_type == "resnet":
+        if model_type == "clip":
+            print("Running CLIP pipeline...")
+            model, val_loader = run_clip_pipeline(
+                batch_size=args.batch_size,
+                epochs=args.epochs,
+                lr=args.lr,
+                label_smoothing=args.label_smoothing,
+                trainable_clip_layers=args.trainable_clip_layers,
+                dataset_root=dataset_root,
+                seed=args.seed,
+            )
+            return model, val_loader
 
-        print("Running ResNet18 pipeline...")
+        if model_type == "resnet":
+            print("Running ResNet18 pipeline...")
+            model, (train_loader, val_loader) = run_resnet_pipeline(
+                batch_size=args.batch_size,
+                epochs=args.epochs,
+                lr=args.lr,
+                label_smoothing=args.label_smoothing,
+                trainable_base_layers=args.trainable_base_layers,
+                dataset_root=dataset_root,
+                seed=args.seed,
+            )
+            return model, (train_loader, val_loader)
 
-        model, (train_loader, val_loader) = run_resnet_pipeline(
-            batch_size=args.batch_size,
-            epochs=args.epochs,
-            lr=args.lr,
-            label_smoothing=args.label_smoothing,
-            trainable_base_layers=args.trainable_base_layers,
-            dataset_root=dataset_root,
-            seed=args.seed,
-
-        )
-
-        return model, (train_loader, val_loader)
-
-    else:
         raise ValueError(f"Unsupported MODEL_TYPE: {args.model_type}")
 
 
