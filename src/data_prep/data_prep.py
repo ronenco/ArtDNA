@@ -25,6 +25,7 @@ class DatasetPreparation:
         self.img_size = img_size
         self.train_ratio = train_ratio
         self.val_ratio = 1.0 - train_ratio
+        self.random_seed = random_seed
         set_global_seed(random_seed)
 
         # Validate ratios
