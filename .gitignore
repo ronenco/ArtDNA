@@ -1,11 +1,11 @@
 ../.venv
 .venv
 /*.keras
-/dataset_comparison.png
-/midjourney_vs_dalle_detector.h5
-/tensorflow_env/
+/dataset_comparison*.png
+/*.h5
+/tensorflow_env
 /raw_data
-/dataset_224x224/
 /dataset
 .idea
 /src/data_prep/tokenOption.py
+/logs
