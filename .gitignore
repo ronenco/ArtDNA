@@ -5,6 +5,7 @@
 /*.h5
 /tensorflow_env
 /raw_data
+/raw_test
 /dataset
 .idea
 /src/data_prep/tokenOption.py
