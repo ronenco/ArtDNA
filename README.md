@@ -143,6 +143,24 @@ Expected output (mac only):
 [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
 ```
 
+###   Run Instructions
+
+make sure you first fetch the data from huggingface by running:
+```
+   python3 src/data_prep/data_fetch.py
+```
+Then you can run any model straight from main.py
+```
+   # run with default configuration
+   python3 main.py 
+   
+   # select model
+   python3 main.py --model-type resnet50
+   
+   # see additional arguments
+   python3 main.py -h
+```
+
 ---
 
 ## 🤝 Contributors
