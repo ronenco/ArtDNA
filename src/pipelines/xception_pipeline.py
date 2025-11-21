@@ -41,10 +41,10 @@ def prepare_data(train_dir, val_dir, batch_size=BATCH_SIZE, img_size=IMG_SIZE):
     Prepare data generators for training and validation using ImageDataGenerator.
 
     Directory structure is expected as:
-      train_dir/
+      train/
         dalle/
         midjourney/
-      val_dir/
+      val/
         dalle/
         midjourney/
     """
