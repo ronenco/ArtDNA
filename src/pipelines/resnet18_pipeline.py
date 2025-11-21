@@ -64,17 +64,6 @@ def create_dataloaders(
 ) -> Tuple[DataLoader, DataLoader, List[str]]:
     """
     Create PyTorch DataLoaders for train and val folders.
-
-    Expected folder structure:
-        dataset_root/
-            train/
-                class_1/
-                class_2/
-                ...
-            val/
-                class_1/
-                class_2/
-                ...
     """
 
     # ImageNet-style normalization (for pretrained ResNet)

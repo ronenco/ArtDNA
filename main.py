@@ -5,8 +5,10 @@ from typing import Optional
 from src.common.logging_utils import tee_output
 from src.pipelines.clip_pipeline import run_pipeline as run_clip_pipeline
 from src.pipelines.efficeintnet_pipeline import run_pipeline as run_efficientnet_pipeline
-from src.pipelines.resnet18_pipeline import run_pipeline as run_resnet_pipeline
+from src.pipelines.resnet18_pipeline import run_pipeline as run_resnet18_pipeline
+from src.pipelines.resnet50_pipeline import run_pipeline as run_resnet50_pipeline
 from src.pipelines.xception_pipeline import run_pipeline as run_xception_pipeline
+from src.pipelines.mobilenet_pipeline import run_pipeline as run_mobilenet_pipeline
 
 # Hyperparameters will now come from CLI arguments
 
@@ -50,7 +52,7 @@ def parse_args():
         "--model-type",
         type=str,
         default="xception",
-        choices=["xception", "efficientnet", "clip", "resnet"],
+        choices=["xception", "efficientnet", "clip", "resnet18", "resnet50", "mobilenet"],
         help="Which model pipeline to run",
     )
 
@@ -63,7 +65,7 @@ def parse_args():
         "--trainable-base-layers",
         type=int,
         default=5,
-        help="Used for Xception/EfficientNet/ResNet fine-tuning",
+        help="Used for Xception/EfficientNet/ResNet/MobileNet fine-tuning",
     )
     parser.add_argument(
         "--trainable-clip-layers",
@@ -91,7 +93,7 @@ def _resolve_dataset_root(model_type: str, override: Optional[str]) -> Path:
     if override is not None:
         return Path(override)
 
-    if model_type in ("efficientnet", "clip", "resnet"):
+    if model_type in ("efficientnet", "clip", "resnet18", "resnet50", "mobilenet"):
         return DATASET_224
     if model_type == "xception":
         return DATASET_299
@@ -148,9 +150,9 @@ def main():
             )
             return model, val_loader
 
-        if model_type == "resnet":
+        if model_type == "resnet18":
             print("Running ResNet18 pipeline...")
-            model, (train_loader, val_loader) = run_resnet_pipeline(
+            model, (train_loader, val_loader) = run_resnet18_pipeline(
                 batch_size=args.batch_size,
                 epochs=args.epochs,
                 lr=args.lr,
@@ -160,6 +162,32 @@ def main():
                 seed=args.seed,
             )
             return model, (train_loader, val_loader)
+
+        if model_type == "resnet50":
+            print("Running ResNet50 pipeline...")
+            model, (train_gen, val_gen) = run_resnet50_pipeline(
+                batch_size=args.batch_size,
+                epochs=args.epochs,
+                lr=args.lr,
+                label_smoothing=args.label_smoothing,
+                trainable_base_layers=args.trainable_base_layers,
+                dataset_root=dataset_root,
+                seed=args.seed,
+            )
+            return model, (train_gen, val_gen)
+
+        if model_type == "mobilenet":
+            print("Running MobileNet pipeline...")
+            model, (train_gen, val_gen) = run_mobilenet_pipeline(
+                batch_size=args.batch_size,
+                epochs=args.epochs,
+                lr=args.lr,
+                label_smoothing=args.label_smoothing,
+                trainable_base_layers=args.trainable_base_layers,
+                dataset_root=dataset_root,
+                seed=args.seed,
+            )
+            return model, (train_gen, val_gen)
 
         raise ValueError(f"Unsupported MODEL_TYPE: {args.model_type}")
 
