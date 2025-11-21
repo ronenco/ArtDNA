@@ -141,6 +141,7 @@ def plot_training_history(history, title_prefix: str = "Model"):
     axes[1].grid(True)
 
     plt.tight_layout()
+    plt.savefig(f"{title_prefix.lower()}_training_curve.png", dpi=150)
     plt.show()
 
 def plot_training_history_torch(train_losses, val_losses, train_accs, val_accs, title_prefix="CLIP"):
