@@ -89,11 +89,16 @@ class DatasetPreparation:
 
     def create_directory_structure(self):
         """Create the train/val directory structure"""
-        splits = ['train', 'val']
+        if 0.0 < self.train_ratio < 1.0:
+            splits = ['train', 'val']
 
-        for split in splits:
+            for split in splits:
+                for class_name in self.source_dirs.keys():
+                    dir_path = self.output_dir / split / class_name
+                    dir_path.mkdir(parents=True, exist_ok=True)
+        else:
             for class_name in self.source_dirs.keys():
-                dir_path = self.output_dir / split / class_name
+                dir_path = self.output_dir / class_name
                 dir_path.mkdir(parents=True, exist_ok=True)
 
         print(f"Created directory structure in {self.output_dir}")
@@ -128,20 +133,32 @@ class DatasetPreparation:
                 continue
 
             # Split into train and val
-            train_files, val_files = train_test_split(
-                image_files,
-                train_size=self.train_ratio,
-                random_state=self.random_seed,
-                shuffle=True
-            )
-
+            if 0.0 < self.train_ratio < 1.0:
+                train_files, val_files = train_test_split(
+                    image_files,
+                    train_size=self.train_ratio,
+                    random_state=self.random_seed,
+                    shuffle=True
+                )
+            elif self.train_ratio == 0.0:
+                # All images go to "val" (useful for test-set style exports)
+                train_files, val_files = [], image_files
+            elif self.train_ratio == 1.0:
+                # All images go to "train"
+                train_files, val_files = image_files, []
+            else:
+                raise ValueError(f"Unsupported train_ratio={self.train_ratio}")
+            
             print(f"Split: {len(train_files)} train, {len(val_files)} val")
 
             # Process training images
             print(f"Resizing and saving training images...")
             train_success = 0
             for img_path in tqdm(train_files, desc=f"Train {class_name}"):
-                dst_path = self.output_dir / 'train' / class_name / f"{img_path.stem}.jpg"
+                if (self.train_ratio == 1 ):
+                    dst_path = self.output_dir / class_name / f"{img_path.stem}.jpg"
+                else:
+                    dst_path = self.output_dir / 'train' / class_name / f"{img_path.stem}.jpg"
                 if self.resize_and_save_image(img_path, dst_path, self.img_size):
                     train_success += 1
 
@@ -149,7 +166,10 @@ class DatasetPreparation:
             print(f"Resizing and saving validation images...")
             val_success = 0
             for img_path in tqdm(val_files, desc=f"Val {class_name}"):
-                dst_path = self.output_dir / 'val' / class_name / f"{img_path.stem}.jpg"
+                if (self.train_ratio == 0):
+                    dst_path = self.output_dir / class_name / f"{img_path.stem}.jpg"
+                else:
+                    dst_path = self.output_dir / 'val' / class_name / f"{img_path.stem}.jpg"
                 if self.resize_and_save_image(img_path, dst_path, self.img_size):
                     val_success += 1
 
@@ -203,16 +223,8 @@ class DatasetPreparation:
         print("\n" + "=" * 60)
         print("DATASET VERIFICATION")
         print("=" * 60)
-
-        for split in ['train', 'val']:
-            print(f"\n{split.upper()}:")
-            split_dir = self.output_dir / split
-
-            if not split_dir.exists():
-                print(f"  Directory not found!")
-                continue
-
-            for class_dir in split_dir.iterdir():
+        if ((self.train_ratio == 1) or (self.train_ratio == 0)):
+            for class_dir in self.output_dir.iterdir():
                 if class_dir.is_dir():
                     images = list(class_dir.glob('*.jpg'))
                     print(f"  {class_dir.name}: {len(images)} images")
@@ -221,6 +233,41 @@ class DatasetPreparation:
                     if images:
                         sample_img = Image.open(images[0])
                         print(f"    Sample image size: {sample_img.size}")
+        else:
+            for split in ['train', 'val']:
+                print(f"\n{split.upper()}:")
+                split_dir = self.output_dir / split
+
+                if not split_dir.exists():
+                    print(f"  Directory not found!")
+                    continue
+
+                for class_dir in split_dir.iterdir():
+                    if class_dir.is_dir():
+                        images = list(class_dir.glob('*.jpg'))
+                        print(f"  {class_dir.name}: {len(images)} images")
+
+                        # Check a sample image size
+                        if images:
+                            sample_img = Image.open(images[0])
+                            print(f"    Sample image size: {sample_img.size}")
+
+def print_structure(root_path, title):
+    root = Path(root_path)
+    print(f"\n{title}: {root.resolve()}")
+    if not root.exists():
+        print("  (Directory does not exist)")
+        return
+    for split in ["train", "val"]:
+        split_dir = root / split
+        print(f"  {split}/ -> {split_dir.resolve()}")
+        if split_dir.exists():
+            for class_dir in split_dir.iterdir():
+                if class_dir.is_dir():
+                    print(f"    {class_dir.name}/ ({len(list(class_dir.glob('*.jpg')))} images)")
+        else:
+            print("    (Missing)")
+
 
 
 if __name__ == "__main__":
@@ -231,6 +278,10 @@ if __name__ == "__main__":
     source_directories = {
         'midjourney': 'raw_data/midjourney',
         'dalle': 'raw_data/dalle'
+    }
+    test_directories = {
+        'midjourney' : 'raw_test/midjourney',
+        'dalle': 'raw_test/dalle'
     }
 
     # Prepration for efficientNet:
@@ -249,6 +300,25 @@ if __name__ == "__main__":
         train_ratio=0.8,
     )
 
+    # Test Set generation:
+
+    # For regular based:
+    testPrep = DatasetPreparation(
+        source_dirs= test_directories,
+        output_dir='./dataset/testset_224x224',
+        img_size=(224, 224),
+        train_ratio=0,
+    )
+
+    # For xception:
+    testPrep2 = DatasetPreparation(
+        source_dirs= test_directories,
+        output_dir='./dataset/testset_299x299',
+        img_size=(299, 299),
+        train_ratio=0,
+    )
+
+
     # Uncomment to run:
     stats = prep.prepare_dataset()
     prep.verify_dataset()
@@ -256,19 +326,23 @@ if __name__ == "__main__":
     stats2 = prep2.prepare_dataset()
     prep2.verify_dataset()
 
+    print("\nEXAMPLE 2: Test set generation (224x224 and 299x299)")
+    print("-" * 60)
+
+    testStats = testPrep.prepare_dataset()
+    testPrep.verify_dataset()
+
+    testStats2 = testPrep2.prepare_dataset()
+    testPrep2.verify_dataset()
 
     print("\n" + "=" * 60)
-    print("\nTo use this script:")
-    print("1. Update the source_directories paths to point to your image folders")
-    print("2. Uncomment the prep.prepare_dataset() and prep.verify_dataset() lines")
-    print("3. Run the script!")
-    print("\nExpected input structure (can be flat or nested):")
-    print("  raw_data/")
-    print("    midjourney/")
-    print("      image1.jpg")
-    print("      image2.png")
-    print("      subfolder/")
-    print("        image3.jpg")
-    print("    dalle/")
-    print("      image1.jpg")
-    print("      image2.png")
+    print("DATASET & TESTSET LOCATIONS")
+    print("=" * 60)
+
+    print_structure("./dataset/dataset_224x224", "Training Dataset 224x224")
+    print_structure("./dataset/dataset_299x299", "Training Dataset 299x299")
+    print_structure("./dataset/testset_224x224", "Testset 224x224")
+    print_structure("./dataset/testset_299x299", "Testset 299x299")
+
+    print("\nSummary complete.")
+    print("=" * 60)

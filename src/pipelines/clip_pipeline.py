@@ -9,7 +9,7 @@ import open_clip
 from tqdm import tqdm
 
 import numpy as np
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, f1_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -21,6 +21,7 @@ from src.common.ml_utils import set_global_seed, plot_training_history_torch
 MODEL_NAME = "ViT-B-32"         # CLIP backbone
 PRETRAIN_DATASET = "laion2b_s34b_b79k"  # pretraining configuration
 BATCH_SIZE = 32
+TEST_BATCH_SIZE = 20
 EPOCHS = 10
 SEED = 42
 TRAINABLE_CLIP_LAYERS = 3 # number of CLIP visual layers to unfreeze (0 = freeze all)
@@ -30,6 +31,7 @@ DEVICE = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.i
 DATASET_ROOT = Path("dataset/dataset_224x224")
 TRAIN_DIR = DATASET_ROOT / "train"
 VAL_DIR = DATASET_ROOT / "val"
+TESTSET_ROOT = Path("dataset/testset_224x224")
 MODEL_SAVE_PATH = "clip_midjourney_vs_dalle_best.pt"
 
 
@@ -74,6 +76,31 @@ def build_dataloaders(preprocess_transform, train_dir: Path = TRAIN_DIR, val_dir
     print("Val samples:", len(val_dataset))
 
     return train_loader, val_loader
+
+def build_test_loader(preprocess_transform, test_dir: Path = TESTSET_ROOT, batch_size: int = BATCH_SIZE):
+    """
+    Build a DataLoader for the held-out test set.
+
+    Expects the same folder structure as train/val:
+        test_dir / class_name / *.png
+    """
+    test_dataset = datasets.ImageFolder(
+        root=str(test_dir),
+        transform=preprocess_transform,
+    )
+
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=(DEVICE == "cuda"),
+    )
+
+    print("Test classes:", test_dataset.classes)
+    print("Test samples:", len(test_dataset))
+
+    return test_loader
 
 
 # ---------- Model: CLIP image encoder + small classifier ----------
@@ -125,13 +152,19 @@ class CLIPClassifier(nn.Module):
         return logits.squeeze(1)
 
 
-def generate_report(model, loader, device):
+def generate_report(model, loader, device, output_path: str = "clip_confusion_matrix.png", desc: str = "Report"):
+    """
+    Generate a classification report, confusion matrix, and summary metrics
+    (accuracy and F1) for a given model and DataLoader.
+
+    Returns a dict with the main metrics for optional downstream use.
+    """
     model.eval()
     all_labels = []
     all_preds = []
 
     with torch.no_grad():
-        for images, labels in tqdm(loader, desc="Report", leave=False):
+        for images, labels in tqdm(loader, desc=desc, leave=False):
             images = images.to(device)
             logits = model(images)
             probs = torch.sigmoid(logits)
@@ -145,6 +178,16 @@ def generate_report(model, loader, device):
 
     class_names = loader.dataset.classes
 
+    # Summary metrics
+    acc = accuracy_score(all_labels, all_preds)
+    f1_macro = f1_score(all_labels, all_preds, average="macro")
+    f1_weighted = f1_score(all_labels, all_preds, average="weighted")
+
+    print("\nSummary metrics:")
+    print(f"  Accuracy:       {acc:.4f}")
+    print(f"  F1 (macro):     {f1_macro:.4f}")
+    print(f"  F1 (weighted):  {f1_weighted:.4f}")
+
     print("\nClassification report:")
     print(classification_report(all_labels, all_preds, target_names=class_names))
 
@@ -155,8 +198,16 @@ def generate_report(model, loader, device):
     plt.ylabel("True")
     plt.title("Confusion Matrix")
     plt.tight_layout()
-    plt.savefig("clip_confusion_matrix.png")
+    plt.savefig(output_path)
     plt.close()
+    print(f"Confusion matrix saved to: {output_path}")
+
+    return {
+        "accuracy": acc,
+        "f1_macro": f1_macro,
+        "f1_weighted": f1_weighted,
+        "support": len(all_labels),
+    }
 
 
 # ---------- Training / Evaluation loops ----------
@@ -321,16 +372,129 @@ def run_pipeline(
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            torch.save(model.state_dict(), model_save_path)
+            save_trained_model(model, model_save_path)
             print(f"✅ New best model saved (val_acc={val_acc:.4f})")
 
     print(f"\nBest val accuracy: {best_val_acc:.4f}")
     
     # Plot the training history:
-    plot_training_history_torch(train_losses, val_losses, train_accs, val_accs,
-        title_prefix="CLIP")
+    plot_training_history_torch(
+        train_losses, val_losses, train_accs, val_accs,
+        title_prefix="CLIP"
+    )
+
+    # Reload the best model (by validation accuracy) from disk so downstream
+    # evaluation and report use the best checkpoint.
+    best_model, test_loader, test_loss, test_acc = evaluate_on_testset()
     
-    return model, val_loader
+    return best_model, val_loader
+
+
+def save_trained_model(model: nn.Module, path: str = MODEL_SAVE_PATH):
+    """Save the full CLIPClassifier (backbone + head) state_dict to a file."""
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(path), exist_ok=True) if os.path.dirname(path) else None
+    torch.save(model.state_dict(), path)
+    print(f"Model state_dict saved to: {path}")
+
+
+def load_trained_model(
+    model_name: str = MODEL_NAME,
+    pretrained_dataset: str = PRETRAIN_DATASET,
+    trainable_clip_layers: int = TRAINABLE_CLIP_LAYERS,
+    model_path: str = MODEL_SAVE_PATH,
+    device: str = DEVICE,
+) -> nn.Module:
+    """Recreate the CLIPClassifier architecture and load weights from `model_path`.
+
+    This assumes the same CLIP backbone configuration (model_name, pretrained_dataset)
+    that was used for training.
+    """
+    # Recreate CLIP backbone
+    clip_model, _, _ = open_clip.create_model_and_transforms(
+        model_name,
+        pretrained=pretrained_dataset,
+        device=device,
+    )
+
+    embed_dim = clip_model.visual.output_dim
+
+    # Wrap it in our classifier and load weights
+    model = CLIPClassifier(
+        clip_model,
+        embed_dim,
+        trainable_layers=trainable_clip_layers,
+    )
+
+    state_dict = torch.load(model_path, map_location=device)
+    model.load_state_dict(state_dict)
+    model.to(device)
+    model.eval()
+
+    print(f"Loaded trained model from: {model_path}")
+    return model
+
+def evaluate_on_testset(
+    model_path: str = MODEL_SAVE_PATH,
+    testset_root: Path = TESTSET_ROOT,
+    model_name: str = MODEL_NAME,
+    pretrained_dataset: str = PRETRAIN_DATASET,
+    trainable_clip_layers: int = TRAINABLE_CLIP_LAYERS,
+    batch_size: int = BATCH_SIZE,
+    device: str = DEVICE,
+):
+    """Load a trained model and evaluate it on a held-out test set.
+
+    Expects testset_root to have the same folder structure as train/val:
+        testset_root / class_name / *.png
+    """
+    if not testset_root.exists():
+        raise FileNotFoundError(f"Testset directory not found: {testset_root}")
+
+    # Get CLIP preprocess for the given backbone
+    _, _, clip_preprocess = open_clip.create_model_and_transforms(
+        model_name,
+        pretrained=pretrained_dataset,
+        device=device,
+    )
+
+    # Build test loader
+    test_loader = build_test_loader(
+        clip_preprocess,
+        test_dir=testset_root,
+        batch_size=batch_size,
+    )
+
+    # Recreate model and load weights
+    model = load_trained_model(
+        model_name=model_name,
+        pretrained_dataset=pretrained_dataset,
+        trainable_clip_layers=trainable_clip_layers,
+        model_path=model_path,
+        device=device,
+    )
+
+    # Use unweighted loss for reporting on the test set
+    criterion = nn.BCEWithLogitsLoss()
+    print(f"\nLoading model using test loader: {testset_root}")
+    test_loss, test_acc = evaluate(model, test_loader, criterion, device)
+    print(f"\nTest loss: {test_loss:.4f} | Test acc: {test_acc:.4f}")
+
+    # Detailed classification report, metrics & confusion matrix (saved as image)
+    test_metrics = generate_report(
+        model,
+        test_loader,
+        device,
+        output_path="clip_confusion_matrix_test.png",
+        desc="Test report",
+    )
+
+    print("\n[TEST SUMMARY]")
+    print(f"  Accuracy:       {test_metrics['accuracy']:.4f}")
+    print(f"  F1 (macro):     {test_metrics['f1_macro']:.4f}")
+    print(f"  F1 (weighted):  {test_metrics['f1_weighted']:.4f}")
+    
+    return model, test_loader, test_loss, test_acc
 
 
 # ---------- Main ----------
@@ -341,8 +505,22 @@ def main():
 
 
 if __name__ == "__main__":
-    # Run the Pipline to generate model
+    # Run the pipeline to train and load the BEST validation model
     model, val_loader = main()
 
-    #Generate report:
-    generate_report(model, val_loader, DEVICE)
+    # Validation report (best model), including confusion matrix image
+    print("\n[VALIDATION SUMMARY - BEST MODEL]")
+    val_metrics = generate_report(
+        model,
+        val_loader,
+        DEVICE,
+        output_path="clip_confusion_matrix_val.png",
+        desc="Val report",
+    )
+
+    print("\n[VALIDATION METRICS]")
+    print(f"  Accuracy:       {val_metrics['accuracy']:.4f}")
+    print(f"  F1 (macro):     {val_metrics['f1_macro']:.4f}")
+    print(f"  F1 (weighted):  {val_metrics['f1_weighted']:.4f}")
+
+    # Run on the held-out test set using the same best checkpoint

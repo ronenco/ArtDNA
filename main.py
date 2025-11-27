@@ -59,7 +59,7 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--label-smoothing", type=float, default=0.1)
+    parser.add_argument("--label-smoothing", type=float, default=0.0)
 
     parser.add_argument(
         "--trainable-base-layers",
