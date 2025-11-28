@@ -213,6 +213,14 @@ def generate_report(model, loader, device, output_path: str = "clip_confusion_ma
 # ---------- Training / Evaluation loops ----------
 
 def train_one_epoch(model, loader, criterion, optimizer, device, label_smoothing: float = 0.0):
+    """
+    One training epoch.
+
+    IMPORTANT:
+    - We apply label smoothing only to the targets used for the loss.
+    - Accuracy is always computed against the original hard labels (0/1),
+      so metrics remain meaningful even when label smoothing is enabled.
+    """
     model.train()
     running_loss = 0.0
     correct = 0
@@ -220,25 +228,30 @@ def train_one_epoch(model, loader, criterion, optimizer, device, label_smoothing
 
     for images, labels in tqdm(loader, desc="Train", leave=False):
         images = images.to(device)
-        labels = labels.float().to(device)  # BCEWithLogitsLoss expects float labels (0/1)
+
+        # Keep a copy of the hard integer labels for accuracy
+        hard_labels = labels.to(device)          # int64 tensor of 0/1
+        targets = hard_labels.float()            # float tensor for BCEWithLogitsLoss
 
         if label_smoothing > 0.0:
             smooth = label_smoothing
-            # For binary labels, smooth towards 0.5
-            labels = labels * (1.0 - smooth) + 0.5 * smooth
+            # For binary labels, smooth towards 0.5 (e.g. 0 -> eps/2, 1 -> 1 - eps/2)
+            targets = targets * (1.0 - smooth) + 0.5 * smooth
 
         optimizer.zero_grad()
         logits = model(images)
-        loss = criterion(logits, labels)
+        loss = criterion(logits, targets)
 
         loss.backward()
         optimizer.step()
 
         running_loss += loss.item() * images.size(0)
 
-        preds = (torch.sigmoid(logits) > 0.5).long()
-        correct += (preds.cpu() == labels.cpu().long()).sum().item()
-        total += images.size(0)
+        # Accuracy: compare predictions to *hard* labels (0/1), not smoothed targets
+        probs = torch.sigmoid(logits)
+        preds = (probs > 0.5).long()
+        correct += (preds.cpu() == hard_labels.cpu()).sum().item()
+        total += hard_labels.size(0)
 
     avg_loss = running_loss / total
     acc = correct / total

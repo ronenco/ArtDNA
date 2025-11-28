@@ -252,21 +252,31 @@ class DatasetPreparation:
                             sample_img = Image.open(images[0])
                             print(f"    Sample image size: {sample_img.size}")
 
-def print_structure(root_path, title):
+def print_structure(root_path, title, test_type):
+
     root = Path(root_path)
     print(f"\n{title}: {root.resolve()}")
     if not root.exists():
         print("  (Directory does not exist)")
         return
-    for split in ["train", "val"]:
-        split_dir = root / split
-        print(f"  {split}/ -> {split_dir.resolve()}")
-        if split_dir.exists():
-            for class_dir in split_dir.iterdir():
+    if (test_type = "training"):
+        for split in ["train", "val"]:
+            split_dir = root / split
+            print(f"  {split}/ -> {split_dir.resolve()}")
+            if split_dir.exists():
+                for class_dir in split_dir.iterdir():
+                    if class_dir.is_dir():
+                        print(f"    {class_dir.name}/ ({len(list(class_dir.glob('*.jpg')))} images)")
+            else:
+                print("    (Missing)")
+    elif (test_type == 'testing'):
+        print (f"  -> {root.resolve()}")
+        if root.exists():
+            for class_dir in root.iterdir():
                 if class_dir.is_dir():
-                    print(f"    {class_dir.name}/ ({len(list(class_dir.glob('*.jpg')))} images)")
-        else:
-            print("    (Missing)")
+                    print(f"    {class_dir.name} / ({len(list(class_dir.glob('*.jpg')))} images)")
+    else:
+        print(f"There is no support for test_type = {test_type}")
 
 
 
@@ -339,10 +349,10 @@ if __name__ == "__main__":
     print("DATASET & TESTSET LOCATIONS")
     print("=" * 60)
 
-    print_structure("./dataset/dataset_224x224", "Training Dataset 224x224")
-    print_structure("./dataset/dataset_299x299", "Training Dataset 299x299")
-    print_structure("./dataset/testset_224x224", "Testset 224x224")
-    print_structure("./dataset/testset_299x299", "Testset 299x299")
+    print_structure("./dataset/dataset_224x224", "Training Dataset 224x224", 'training')
+    print_structure("./dataset/dataset_299x299", "Training Dataset 299x299", 'training')
+    print_structure("./dataset/testset_224x224", "Testset 224x224", 'testing')
+    print_structure("./dataset/testset_299x299", "Testset 299x299", 'testing')
 
     print("\nSummary complete.")
     print("=" * 60)
