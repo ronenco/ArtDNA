@@ -11,6 +11,10 @@ from src.pipelines.xception_pipeline import run_pipeline as run_xception_pipelin
 from src.pipelines.mobilenet_pipeline import run_pipeline as run_mobilenet_pipeline
 
 # Hyperparameters will now come from CLI arguments
+# Example usage:
+# python3 main.py --model-type clip --epochs 10 --lr 0.001
+# This will run the clip pipline architecture using 10 epocs with learning rate of 0.001
+# You can use the --help or -h as an argument to get help.
 
 # Default dataset roots per model type
 DATASET_224 = Path("dataset/dataset_224x224")

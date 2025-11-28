@@ -383,6 +383,16 @@ def run_pipeline(
         title_prefix="CLIP"
     )
 
+    # Generate report (confusion matrix:)
+    test_metrics = generate_report(
+        model,
+        val_loader,
+        device,
+        output_path="clip_val_confusion_matrix_test.png",
+        desc="Test report",
+    )
+
+
     # Reload the best model (by validation accuracy) from disk so downstream
     # evaluation and report use the best checkpoint.
     best_model, test_loader, test_loss, test_acc = evaluate_on_testset()
@@ -485,7 +495,7 @@ def evaluate_on_testset(
         model,
         test_loader,
         device,
-        output_path="clip_confusion_matrix_test.png",
+        output_path="clip_test_confusion_matrix_test.png",
         desc="Test report",
     )
 
@@ -493,7 +503,7 @@ def evaluate_on_testset(
     print(f"  Accuracy:       {test_metrics['accuracy']:.4f}")
     print(f"  F1 (macro):     {test_metrics['f1_macro']:.4f}")
     print(f"  F1 (weighted):  {test_metrics['f1_weighted']:.4f}")
-    
+
     return model, test_loader, test_loss, test_acc
 
 
