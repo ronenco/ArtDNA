@@ -6,6 +6,7 @@
 from pathlib import Path
 from typing import Tuple, List
 
+import platform
 import random
 import numpy as np
 from tqdm.auto import tqdm
@@ -17,10 +18,12 @@ from torchvision import transforms
 from torchvision.datasets import ImageFolder
 from torchvision.models import resnet18, ResNet18_Weights
 
+from sklearn.metrics import confusion_matrix, f1_score, classification_report
+
 from src.common.ml_utils import set_global_seed, plot_training_history_torch
 
 
-# ---------- Config (defaults – ניתן לדרוס דרך main.py) ----------
+# ---------- Config (defaults – can be overridden from main.py) ----------
 
 BATCH_SIZE = 32
 EPOCHS = 20
@@ -36,13 +39,16 @@ DEVICE = (
     else "cpu"
 )
 
+# Path to save the best model weights
+MODEL_SAVE_PATH = Path("models/resnet18_best.pt")
+
 
 # ---------- Utils ----------
 
 def set_seed_full(seed: int = 42):
     """
-    Set random seeds for full reproducibility.
-    משתמש גם ב־set_global_seed של הפרויקט וגם בהגדרות של PyTorch.
+    Set random seeds for reproducibility.
+    Uses both the project-level set_global_seed and PyTorch-specific settings.
     """
     set_global_seed(seed)
     random.seed(seed)
@@ -51,9 +57,11 @@ def set_seed_full(seed: int = 42):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-    # For full determinism (can slow things down)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    # We prefer speed over full determinism here
+    torch.backends.cudnn.benchmark = True
+    # If you need full determinism (slower), uncomment:
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
 
 
 def create_dataloaders(
@@ -63,7 +71,15 @@ def create_dataloaders(
     device: str = DEVICE,
 ) -> Tuple[DataLoader, DataLoader, List[str]]:
     """
-    Create PyTorch DataLoaders for train and val folders.
+    Create PyTorch DataLoaders for train and validation folders.
+    Expects an ImageFolder structure:
+        dataset_root/
+            train/
+                class1/
+                class2/
+            val/
+                class1/
+                class2/
     """
 
     # ImageNet-style normalization (for pretrained ResNet)
@@ -152,7 +168,10 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
 ):
-    """Train model for a single epoch."""
+    """
+    Train the model for a single epoch.
+    Returns (epoch_loss, epoch_accuracy).
+    """
     model.train()
     running_loss = 0.0
     correct = 0
@@ -185,7 +204,10 @@ def validate_one_epoch(
     criterion: nn.Module,
     device: torch.device,
 ):
-    """Evaluate model on validation set."""
+    """
+    Evaluate the model on the validation set.
+    Returns (epoch_loss, epoch_accuracy).
+    """
     model.eval()
     running_loss = 0.0
     correct = 0
@@ -210,7 +232,34 @@ def validate_one_epoch(
     return epoch_loss, epoch_acc
 
 
-# ---------- Main pipeline API main.py ----------
+def evaluate_on_loader(
+    model: nn.Module,
+    dataloader: DataLoader,
+    device: torch.device,
+):
+    """
+    Run inference on a given DataLoader and collect all predictions and labels.
+    Returns (y_true, y_pred) as numpy arrays.
+    """
+    model.eval()
+    all_preds = []
+    all_labels = []
+
+    with torch.no_grad():
+        for images, labels in tqdm(dataloader, desc="Eval", leave=False):
+            images = images.to(device)
+            labels = labels.to(device)
+
+            outputs = model(images)
+            preds = torch.argmax(outputs, dim=1)
+
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    return np.array(all_labels), np.array(all_preds)
+
+
+# ---------- Main pipeline API for main.py ----------
 
 def run_pipeline(
     batch_size: int = BATCH_SIZE,
@@ -240,12 +289,16 @@ def run_pipeline(
     device = torch.device(device_str)
     print(f"[ResNet18 Pipeline] Using device: {device_str}")
 
+    # ---- Choose num_workers safely (0 for Windows to avoid DataLoader hang issues) ----
+    num_workers = 0 if platform.system() == "Windows" else 4
+    print(f"[ResNet18 Pipeline] Using num_workers={num_workers}")
+
     # ---- Data ----
     print(f"[ResNet18 Pipeline] Loading data from: {dataset_root}")
     train_loader, val_loader, class_names = create_dataloaders(
         dataset_root=dataset_root,
         batch_size=batch_size,
-        num_workers=4,
+        num_workers=num_workers,
         device=device_str,
     )
     num_classes = len(class_names)
@@ -307,19 +360,39 @@ def run_pipeline(
         print(f"[ResNet18 Pipeline] Train  Loss: {train_loss:.4f} | Acc: {train_acc:.4f}")
         print(f"[ResNet18 Pipeline] Val    Loss: {val_loss:.4f} | Acc: {val_acc:.4f}")
 
-        # Save best model 
+        # Save best model (in memory)
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             best_model_state = model.state_dict()
             print(f"[ResNet18 Pipeline] ✅ New best model (val_acc={best_val_acc:.4f})")
 
-    # Load best weights back into the model
+    # Load best weights back into the model and save to disk
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
 
+        # Ensure the directory exists and save the best model weights to disk
+        MODEL_SAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(best_model_state, MODEL_SAVE_PATH)
+        print(f"[ResNet18 Pipeline] Best model weights saved to: {MODEL_SAVE_PATH}")
+
     print(f"\n[ResNet18 Pipeline] Training finished. Best val_acc = {best_val_acc:.4f}")
 
-    
+    # ---- Evaluation on validation set: Confusion Matrix + F1 ----
+    print("\n[ResNet18 Pipeline] Evaluating on validation set (Confusion Matrix & F1)...")
+    y_true, y_pred = evaluate_on_loader(model, val_loader, device)
+
+    cm = confusion_matrix(y_true, y_pred)
+    f1_macro = f1_score(y_true, y_pred, average="macro")
+
+    print("\n[ResNet18 Pipeline] Confusion Matrix (val):")
+    print(cm)
+
+    print(f"\n[ResNet18 Pipeline] F1-score (macro, val): {f1_macro:.4f}")
+
+    print("\n[ResNet18 Pipeline] Classification Report (val):")
+    print(classification_report(y_true, y_pred, target_names=class_names))
+
+    # ---- Plot training history ----
     plot_training_history_torch(
         train_losses,
         val_losses,
@@ -330,7 +403,6 @@ def run_pipeline(
 
     # Return model and loaders in a similar format to other pipelines
     return model, (train_loader, val_loader)
-
 
 
 if __name__ == "__main__":
