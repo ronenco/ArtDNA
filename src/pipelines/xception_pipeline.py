@@ -12,7 +12,12 @@ from tensorflow.keras import layers
 from tensorflow.keras.applications import Xception
 from tensorflow.keras.applications.xception import preprocess_input
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from src.common.ml_utils import set_global_seed, compute_class_weights, plot_training_history
+from src.common.ml_utils import (
+    set_global_seed,
+    compute_class_weights,
+    plot_training_history,
+    evaluate_keras_model_on_directory,
+)
 
 
 # ---------- Config ----------
@@ -28,6 +33,7 @@ TRAINABLE_BASE_LAYERS = 5  # how many base layers to unfreeze from the end
 DATASET_ROOT = Path("dataset/dataset_299x299")
 TRAIN_DIR = DATASET_ROOT / "train"
 VAL_DIR = DATASET_ROOT / "val"
+TESTSET_ROOT = Path("dataset/testset_299x299")
 MODEL_SAVE_PATH = "midjourney_vs_dalle_xception_detector.keras"
 
 # Set random seeds for reproducibility
@@ -240,6 +246,40 @@ def evaluate_model(model, val_generator):
     plt.savefig("xception_confusion_matrix.png", dpi=150)
     plt.show()
 
+def evaluate_testset(
+    model,
+    test_dir: Path = TESTSET_ROOT,
+    img_size: int = IMG_SIZE,
+    batch_size: int = BATCH_SIZE,
+    num_classes: int = NUM_CLASSES,
+):
+    """
+    Evaluate the trained Xception model on a held-out TEST set.
+
+    Expects directory structure:
+        test_dir/
+            dalle/
+            midjourney/
+
+    Uses the generic evaluate_keras_model_on_directory helper from ml_utils,
+    so it can be reused with different image sizes or class counts.
+    """
+    if model is None:
+        raise ValueError("Model must be provided to evaluate the test set.")
+
+    results = evaluate_keras_model_on_directory(
+        model=model,
+        data_dir=test_dir,
+        img_size=img_size,
+        batch_size=batch_size,
+        num_classes=num_classes,
+        class_mode="binary" if num_classes == 2 else "categorical",
+        save_confusion_matrix_path="xception_confusion_matrix_test.png",
+        title_prefix="XCEPTION TEST",
+    )
+
+    return results
+
 
 # ---------- Helper: dataset sanity + visualization ----------
 
@@ -342,6 +382,19 @@ def run_pipeline(
     # Evaluate on validation set
     print("\nEvaluating XCEPTION model on VALIDATION set...")
     evaluate_model(model, val_gen)
+
+    # Evaluate on TEST set (if exists)
+    if TESTSET_ROOT.exists():
+        print("\nEvaluating XCEPTION model on TEST set...")
+        evaluate_testset(
+            model=model,
+            test_dir=TESTSET_ROOT,
+            img_size=img_size,
+            batch_size=batch_size,
+            num_classes=num_classes,
+        )
+    else:
+        print(f"\nNo TEST set found at: {TESTSET_ROOT}")
 
     # Save model (best model is already saved by ModelCheckpoint, but save final as well if desired)
     model.save(model_save_path)

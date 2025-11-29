@@ -20,6 +20,12 @@ def set_global_seed(seed):
     np.random.seed(seed)
     tf.random.set_seed(seed)
 
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import classification_report, confusion_matrix
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
 def ensure_dataset_has_images(dataset_root):
     '''
     Validate that a dataset directory contains both `train/` and `val/` subfolders
@@ -173,3 +179,112 @@ def plot_training_history_torch(train_losses, val_losses, train_accs, val_accs, 
     plt.tight_layout()
     plt.savefig(f"{title_prefix.lower()}_training_curve.png", dpi=150)
     plt.show()
+
+def evaluate_keras_model_on_directory(
+    model,
+    data_dir,
+    img_size,
+    batch_size=32,
+    num_classes=2,
+    class_mode=None,
+    save_confusion_matrix_path=None,
+    title_prefix="MODEL",
+):
+    """
+    Generic evaluation helper for Keras image models on a directory-based dataset.
+
+    Expects directory structure:
+        data_dir/
+            class_0/
+            class_1/
+            ...
+
+    Works for any Keras CNN architecture:
+        - EfficientNet (224x224)
+        - Xception (299x299)
+        - Custom models
+
+    Args:
+        model: A compiled Keras model.
+        data_dir: Path to dataset directory with class subfolders.
+        img_size: Integer size for (img_size x img_size) resizing.
+        batch_size: Generator batch size.
+        num_classes: Number of classes.
+        class_mode: Optional override. If None, binary for 2 classes, else categorical.
+        save_confusion_matrix_path: If provided, saves confusion matrix PNG.
+        title_prefix: Label prefix used in logs and plot titles.
+
+    Returns:
+        dict with:
+            - y_true
+            - y_pred
+            - class_names
+            - confusion_matrix
+    """
+
+    if class_mode is None:
+        class_mode = "binary" if num_classes == 2 else "categorical"
+
+    datagen = ImageDataGenerator()
+
+    generator = datagen.flow_from_directory(
+        str(data_dir),
+        target_size=(img_size, img_size),
+        batch_size=batch_size,
+        class_mode=class_mode,
+        shuffle=False,
+    )
+
+    print(f"\n[{title_prefix}] Evaluating on directory: {data_dir}")
+    print(f"Samples: {generator.samples}")
+    print(f"Classes: {generator.class_indices}")
+
+    predictions = model.predict(generator)
+
+    # Convert predictions depending on output type
+    if class_mode == "binary":
+        # Binary: logits or probabilities of shape (N,1) or (N,)
+        if predictions.ndim == 2 and predictions.shape[1] == 1:
+            y_pred = (predictions > 0.5).astype(int).flatten()
+        else:
+            y_pred = (predictions > 0.5).astype(int).flatten()
+    else:
+        # Multiclass
+        y_pred = np.argmax(predictions, axis=1)
+
+    y_true = generator.classes
+    class_names = list(generator.class_indices.keys())
+
+    print(f"\n[{title_prefix}] Classification report:")
+    print(classification_report(y_true, y_pred, target_names=class_names))
+
+    cm = confusion_matrix(y_true, y_pred)
+
+    plt.figure(figsize=(6, 5))
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        xticklabels=class_names,
+        yticklabels=class_names,
+    )
+    plt.title(f"{title_prefix} - Confusion Matrix")
+    plt.ylabel("True Label")
+    plt.xlabel("Predicted Label")
+    plt.tight_layout()
+
+    if save_confusion_matrix_path is not None:
+        plt.savefig(save_confusion_matrix_path, dpi=150)
+        print(f"[{title_prefix}] Confusion matrix saved to: {save_confusion_matrix_path}")
+    else:
+        plt.show()
+
+    plt.close()
+
+    return {
+        "y_true": y_true,
+        "y_pred": y_pred,
+        "class_names": class_names,
+        "confusion_matrix": cm,
+    }
