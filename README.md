@@ -45,11 +45,13 @@ Ultimately, this project aims to contribute to the broader effort of **AI transp
 ## 🧩 Repository Structure
 
 ```
-├── data/         # datasets or links to datasets (excluded from git if large)
-├── notebooks/    # exploratory analysis, training, visualizations
-├── src/          # reusable source code: loaders, features, classifiers
-├── docs/         # documentation, diagrams, research notes
+├── src              # All python files:
+│   ├── common       # Shared utility functions
+│   ├── data_prep    # Files used to generate and download the data
+│   └── pipelines    # architecture-based piplines: e.g xception, resnet...
 └── README.md
+└── main.py          # main run file - from here one may run different pipelines.
+
 ```
 ---
 
